@@ -16,15 +16,25 @@ L.Icon.Default.mergeOptions({
 
 const DEFAULT_CENTER = [37.5665, 126.978] // Seoul, used until a real fix is obtained
 const DEFAULT_ZOOM = 15
+const LOCATION_ZOOM = 17 // close enough to see nearby trees once a real fix arrives
+
+const currentLocationIcon = L.divIcon({
+  className: 'current-location-icon',
+  html: '<span class="current-location-dot"></span>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+})
 
 const state = {
   currentPosition: null,
   markers: new Map(),
+  currentLocationMarker: null,
+  accuracyCircle: null,
 }
 
 const el = {
   locationValue: document.getElementById('location-value'),
-  refreshLocationBtn: document.getElementById('refresh-location'),
+  retryLocationBtn: document.getElementById('retry-location'),
   form: document.getElementById('tree-form'),
   species: document.getElementById('species'),
   memo: document.getElementById('memo'),
@@ -39,6 +49,26 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 }).addTo(map)
+
+// On-map "내 위치" control: a large touch target for re-centering on the current fix.
+const LocateControl = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd() {
+    const container = L.DomUtil.create('div', 'locate-control')
+    const button = L.DomUtil.create('button', 'locate-btn', container)
+    button.type = 'button'
+    button.setAttribute('aria-label', '내 위치로 이동')
+    button.innerHTML = '◎'
+    L.DomEvent.disableClickPropagation(container)
+    L.DomEvent.on(button, 'click', (event) => {
+      L.DomEvent.stop(event)
+      requestLocation()
+    })
+    return container
+  },
+})
+
+map.addControl(new LocateControl())
 
 function formatCoord(value) {
   return value.toFixed(6)
@@ -55,39 +85,84 @@ function formatTimestamp(iso) {
   })
 }
 
-function setLocationStatus(text) {
+function setLocationStatus(text, { failed = false } = {}) {
   el.locationValue.textContent = text
+  el.retryLocationBtn.hidden = !failed
+}
+
+function updateCurrentLocationMarker(lat, lng, accuracy) {
+  const latlng = [lat, lng]
+
+  if (!state.currentLocationMarker) {
+    state.currentLocationMarker = L.marker(latlng, {
+      icon: currentLocationIcon,
+      zIndexOffset: 1000,
+      interactive: false,
+      keyboard: false,
+    }).addTo(map)
+  } else {
+    state.currentLocationMarker.setLatLng(latlng)
+  }
+
+  if (!Number.isFinite(accuracy)) return
+
+  if (!state.accuracyCircle) {
+    state.accuracyCircle = L.circle(latlng, {
+      radius: accuracy,
+      color: '#4285f4',
+      weight: 1,
+      opacity: 0.3,
+      fillColor: '#4285f4',
+      fillOpacity: 0.08,
+      interactive: false,
+    }).addTo(map)
+  } else {
+    state.accuracyCircle.setLatLng(latlng)
+    state.accuracyCircle.setRadius(accuracy)
+  }
 }
 
 function requestLocation() {
   if (!('geolocation' in navigator)) {
-    setLocationStatus('이 브라우저는 위치 정보를 지원하지 않습니다')
+    setLocationStatus('이 브라우저는 위치 정보를 지원하지 않습니다.', { failed: true })
     el.saveBtn.disabled = true
     return
   }
 
-  setLocationStatus('위치 확인 중…')
+  setLocationStatus('현재 위치 확인 중…')
   el.saveBtn.disabled = true
 
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      const { latitude, longitude } = position.coords
-      state.currentPosition = { lat: latitude, lng: longitude }
-      setLocationStatus(`${formatCoord(latitude)}, ${formatCoord(longitude)}`)
-      el.saveBtn.disabled = false
-      map.setView([latitude, longitude], DEFAULT_ZOOM)
-    },
-    (error) => {
-      state.currentPosition = null
-      el.saveBtn.disabled = true
-      if (error.code === error.PERMISSION_DENIED) {
-        setLocationStatus('위치 접근이 거부되었습니다. 브라우저 설정을 확인하세요')
-      } else {
-        setLocationStatus('위치를 확인할 수 없습니다. 다시 시도해주세요')
-      }
-    },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-  )
+  try {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords
+        state.currentPosition = { lat: latitude, lng: longitude }
+        updateCurrentLocationMarker(latitude, longitude, accuracy)
+        map.setView([latitude, longitude], LOCATION_ZOOM)
+
+        const accuracyText = Number.isFinite(accuracy) ? ` · 정확도 ±${Math.round(accuracy)}m` : ''
+        setLocationStatus(`현재 위치 확인됨${accuracyText}`)
+        el.saveBtn.disabled = false
+      },
+      (error) => {
+        state.currentPosition = null
+        el.saveBtn.disabled = true
+
+        let message = '현재 위치를 확인하지 못했습니다.'
+        if (error.code === error.PERMISSION_DENIED) {
+          message = '위치 접근 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해주세요.'
+        } else if (error.code === error.TIMEOUT) {
+          message = '위치 확인이 시간 초과되었습니다.'
+        }
+        setLocationStatus(message, { failed: true })
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
+  } catch {
+    state.currentPosition = null
+    el.saveBtn.disabled = true
+    setLocationStatus('현재 위치를 확인하지 못했습니다.', { failed: true })
+  }
 }
 
 function renderMarker(record) {
@@ -199,7 +274,7 @@ el.form.addEventListener('submit', (event) => {
   el.form.reset()
 })
 
-el.refreshLocationBtn.addEventListener('click', requestLocation)
+el.retryLocationBtn.addEventListener('click', requestLocation)
 
 loadExistingRecords()
 requestLocation()
