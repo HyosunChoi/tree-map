@@ -3,6 +3,8 @@ import 'leaflet/dist/leaflet.css'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
+import { Capacitor } from '@capacitor/core'
+import { Geolocation } from '@capacitor/geolocation'
 import './style.css'
 import { getRecords, addRecord, deleteRecord } from './storage.js'
 
@@ -153,48 +155,74 @@ function updateCurrentLocationMarker(lat, lng, accuracy) {
   }
 }
 
-function requestLocation() {
-  if (!('geolocation' in navigator)) {
-    setLocationStatus('이 브라우저는 위치 정보를 지원하지 않습니다.', { failed: true })
-    state.currentPosition = null
-    updateSaveButtonState()
-    return
+// Native builds (Capacitor/iOS/Android) go through the @capacitor/geolocation plugin, which
+// drives the OS-level permission prompt; plain browser/Vercel deploys keep using the Web API.
+// Both resolve to the same `{ coords: { latitude, longitude, accuracy } }` shape.
+async function ensureNativeLocationPermission() {
+  const status = await Geolocation.checkPermissions()
+  if (status.location === 'granted' || status.coarseLocation === 'granted') return true
+
+  const requested = await Geolocation.requestPermissions()
+  return requested.location === 'granted' || requested.coarseLocation === 'granted'
+}
+
+async function getCurrentPositionCompat() {
+  if (Capacitor.isNativePlatform()) {
+    const granted = await ensureNativeLocationPermission()
+    if (!granted) {
+      const error = new Error('Location permission was denied')
+      error.code = 1 // align with GeolocationPositionError.PERMISSION_DENIED below
+      throw error
+    }
+    return Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 })
   }
 
+  if (!('geolocation' in navigator)) {
+    const error = new Error('Geolocation is not supported')
+    error.code = 'UNSUPPORTED'
+    throw error
+  }
+
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0,
+    })
+  })
+}
+
+async function requestLocation() {
   setLocationStatus('현재 위치 확인 중…')
   state.currentPosition = null
   updateSaveButtonState()
 
   try {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude, accuracy } = position.coords
-        state.currentPosition = { lat: latitude, lng: longitude, accuracy }
-        updateCurrentLocationMarker(latitude, longitude, accuracy)
-        map.setView([latitude, longitude], LOCATION_ZOOM)
+    const position = await getCurrentPositionCompat()
+    const { latitude, longitude, accuracy } = position.coords
+    state.currentPosition = { lat: latitude, lng: longitude, accuracy }
+    updateCurrentLocationMarker(latitude, longitude, accuracy)
+    map.setView([latitude, longitude], LOCATION_ZOOM)
 
-        const accuracyText = Number.isFinite(accuracy) ? ` · 정확도 ±${Math.round(accuracy)}m` : ''
-        setLocationStatus(`현재 위치 확인됨${accuracyText}`)
-        updateSaveButtonState()
-      },
-      (error) => {
-        state.currentPosition = null
-        updateSaveButtonState()
-
-        let message = '현재 위치를 확인하지 못했습니다.'
-        if (error.code === error.PERMISSION_DENIED) {
-          message = '위치 접근 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해주세요.'
-        } else if (error.code === error.TIMEOUT) {
-          message = '위치 확인이 시간 초과되었습니다.'
-        }
-        setLocationStatus(message, { failed: true })
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    )
-  } catch {
+    const accuracyText = Number.isFinite(accuracy) ? ` · 정확도 ±${Math.round(accuracy)}m` : ''
+    setLocationStatus(`현재 위치 확인됨${accuracyText}`)
+    updateSaveButtonState()
+  } catch (error) {
     state.currentPosition = null
     updateSaveButtonState()
-    setLocationStatus('현재 위치를 확인하지 못했습니다.', { failed: true })
+
+    if (error?.code === 'UNSUPPORTED') {
+      setLocationStatus('이 브라우저는 위치 정보를 지원하지 않습니다.', { failed: true })
+      return
+    }
+
+    let message = '현재 위치를 확인하지 못했습니다.'
+    if (error?.code === 1 /* PERMISSION_DENIED */) {
+      message = '위치 접근 권한이 거부되었습니다. 설정에서 위치 권한을 허용해주세요.'
+    } else if (error?.code === 3 /* TIMEOUT */) {
+      message = '위치 확인이 시간 초과되었습니다.'
+    }
+    setLocationStatus(message, { failed: true })
   }
 }
 

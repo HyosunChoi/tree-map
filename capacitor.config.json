@@ -1,0 +1,11 @@
+{
+  "appId": "com.hyosunchoi.treemap",
+  "appName": "Tree Map",
+  "webDir": "dist",
+  "backgroundColor": "#2f6f4f",
+  "plugins": {
+    "Geolocation": {
+      "permissions": ["location"]
+    }
+  }
+}
