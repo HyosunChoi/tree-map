@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#2f6f4f" />
+    <title>Tree Map · 나무 필드노트</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <h1>🌳 Tree Map</h1>
+        <p class="subtitle">발견한 나무를 기록하는 필드노트</p>
+      </header>
+
+      <main class="app-main">
+        <section id="map" class="map-section" aria-label="지도"></section>
+
+        <section class="form-section" aria-label="새 기록 추가">
+          <form id="tree-form">
+            <div class="location-row">
+              <div class="location-info">
+                <span class="location-label">현재 위치</span>
+                <span id="location-value" class="location-value">위치 확인 중…</span>
+              </div>
+              <button type="button" id="refresh-location" class="btn btn-secondary">
+                위치 새로고침
+              </button>
+            </div>
+
+            <label for="species">수종명</label>
+            <input
+              id="species"
+              name="species"
+              type="text"
+              placeholder="예: 느티나무"
+              required
+              autocomplete="off"
+            />
+
+            <label for="memo">메모</label>
+            <textarea
+              id="memo"
+              name="memo"
+              rows="3"
+              placeholder="특징, 크기, 상태 등을 자유롭게 기록하세요"
+            ></textarea>
+
+            <button type="submit" id="save-btn" class="btn btn-primary" disabled>
+              이 위치에 기록 저장
+            </button>
+          </form>
+        </section>
+
+        <section class="list-section" aria-label="기록 목록">
+          <h2>기록 목록 (<span id="record-count">0</span>)</h2>
+          <ul id="tree-list" class="tree-list"></ul>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
