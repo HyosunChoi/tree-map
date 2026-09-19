@@ -1,0 +1,142 @@
+workflows:
+  # Smoke test: builds an unsigned debug APK. No Play Store account or keystore needed.
+  # Run this first to confirm the whole pipeline (npm build -> Capacitor sync -> Gradle) works.
+  android-debug:
+    name: Android Debug (smoke test)
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      node: 20
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Build web assets
+        script: npm run build
+      - name: Sync Capacitor Android
+        script: npx cap sync android
+      - name: Build debug APK
+        script: |
+          cd android
+          ./gradlew assembleDebug
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+
+  # Signed release build for the Play Store. Requires an Android keystore configured in
+  # Codemagic (Team settings -> Code signing identities -> Android keystores), referenced
+  # here by its reference name ("treemap_keystore" — rename to match whatever you create).
+  android-release:
+    name: Android Release
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      android_signing:
+        - treemap_keystore
+      node: 20
+    triggering:
+      events:
+        - push
+      tag_patterns:
+        - pattern: 'android-*'
+          include: true
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Build web assets
+        script: npm run build
+      - name: Sync Capacitor Android
+        script: npx cap sync android
+      - name: Build signed release AAB
+        script: |
+          cd android
+          ./gradlew bundleRelease
+    artifacts:
+      - android/app/build/outputs/**/*.aab
+      - android/app/build/outputs/**/mapping.txt
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true
+
+  # Smoke test: builds for the iOS Simulator only. No Apple Developer Program membership,
+  # certificates, or provisioning profiles needed — useful to validate the Capacitor/Xcode
+  # build itself before paying for/joining the Apple Developer Program.
+  ios-simulator:
+    name: iOS Simulator (smoke test)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 20
+      xcode: latest
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Build web assets
+        script: npm run build
+      - name: Sync Capacitor iOS
+        script: npx cap sync ios
+      - name: Build for iOS Simulator
+        script: |
+          xcodebuild build \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+
+  # Signed release build + TestFlight submission. Requires:
+  #   - an active Apple Developer Program membership
+  #   - an App Store Connect API key added as an integration in Codemagic
+  #     (Team settings -> Integrations -> App Store Connect), referenced below as
+  #     "codemagic_api_key" — rename to match whatever you name it.
+  ios-release:
+    name: iOS Release
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: codemagic_api_key
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.hyosunchoi.treemap
+      node: 20
+      xcode: latest
+    triggering:
+      events:
+        - push
+      tag_patterns:
+        - pattern: 'ios-*'
+          include: true
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Build web assets
+        script: npm run build
+      - name: Sync Capacitor iOS
+        script: npx cap sync ios
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Build ipa for distribution
+        script: |
+          xcode-project build-ipa \
+            --project "ios/App/App.xcodeproj" \
+            --scheme "App"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
