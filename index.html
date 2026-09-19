@@ -50,11 +50,13 @@
             <button type="submit" id="save-btn" class="btn btn-primary" disabled>
               이 위치에 기록 저장
             </button>
+            <p id="save-status" class="status-message" role="status" hidden></p>
           </form>
         </section>
 
         <section class="list-section" aria-label="기록 목록">
           <h2>기록 목록 (<span id="record-count">0</span>)</h2>
+          <p id="sync-status" class="status-message" role="status" hidden></p>
           <ul id="tree-list" class="tree-list"></ul>
         </section>
       </main>

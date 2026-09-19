@@ -199,6 +199,17 @@ textarea:focus {
   cursor: not-allowed;
 }
 
+.status-message {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.status-message.status-error {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
 .btn-secondary {
   background: #fff;
   color: var(--color-primary-dark);

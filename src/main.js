@@ -30,6 +30,9 @@ const state = {
   markers: new Map(),
   currentLocationMarker: null,
   accuracyCircle: null,
+  records: [],
+  ownerId: null,
+  saving: false,
 }
 
 const el = {
@@ -39,8 +42,10 @@ const el = {
   species: document.getElementById('species'),
   memo: document.getElementById('memo'),
   saveBtn: document.getElementById('save-btn'),
+  saveStatus: document.getElementById('save-status'),
   list: document.getElementById('tree-list'),
   recordCount: document.getElementById('record-count'),
+  syncStatus: document.getElementById('sync-status'),
 }
 
 const map = L.map('map').setView(DEFAULT_CENTER, DEFAULT_ZOOM)
@@ -90,6 +95,32 @@ function setLocationStatus(text, { failed = false } = {}) {
   el.retryLocationBtn.hidden = !failed
 }
 
+function setSaveStatus(text, { failed = false } = {}) {
+  if (!text) {
+    el.saveStatus.hidden = true
+    el.saveStatus.textContent = ''
+    el.saveStatus.classList.remove('status-error')
+    return
+  }
+  el.saveStatus.hidden = false
+  el.saveStatus.textContent = text
+  el.saveStatus.classList.toggle('status-error', failed)
+}
+
+function updateSaveButtonState() {
+  el.saveBtn.disabled = state.saving || !state.currentPosition
+}
+
+function setSyncStatus(text) {
+  if (!text) {
+    el.syncStatus.hidden = true
+    el.syncStatus.textContent = ''
+    return
+  }
+  el.syncStatus.hidden = false
+  el.syncStatus.textContent = text
+}
+
 function updateCurrentLocationMarker(lat, lng, accuracy) {
   const latlng = [lat, lng]
 
@@ -125,28 +156,30 @@ function updateCurrentLocationMarker(lat, lng, accuracy) {
 function requestLocation() {
   if (!('geolocation' in navigator)) {
     setLocationStatus('이 브라우저는 위치 정보를 지원하지 않습니다.', { failed: true })
-    el.saveBtn.disabled = true
+    state.currentPosition = null
+    updateSaveButtonState()
     return
   }
 
   setLocationStatus('현재 위치 확인 중…')
-  el.saveBtn.disabled = true
+  state.currentPosition = null
+  updateSaveButtonState()
 
   try {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude, accuracy } = position.coords
-        state.currentPosition = { lat: latitude, lng: longitude }
+        state.currentPosition = { lat: latitude, lng: longitude, accuracy }
         updateCurrentLocationMarker(latitude, longitude, accuracy)
         map.setView([latitude, longitude], LOCATION_ZOOM)
 
         const accuracyText = Number.isFinite(accuracy) ? ` · 정확도 ±${Math.round(accuracy)}m` : ''
         setLocationStatus(`현재 위치 확인됨${accuracyText}`)
-        el.saveBtn.disabled = false
+        updateSaveButtonState()
       },
       (error) => {
         state.currentPosition = null
-        el.saveBtn.disabled = true
+        updateSaveButtonState()
 
         let message = '현재 위치를 확인하지 못했습니다.'
         if (error.code === error.PERMISSION_DENIED) {
@@ -160,7 +193,7 @@ function requestLocation() {
     )
   } catch {
     state.currentPosition = null
-    el.saveBtn.disabled = true
+    updateSaveButtonState()
     setLocationStatus('현재 위치를 확인하지 못했습니다.', { failed: true })
   }
 }
@@ -188,8 +221,13 @@ function escapeHtml(text) {
   return div.innerHTML
 }
 
-function renderList() {
-  const records = getRecords()
+// A record with no ownerId predates Supabase (local-only) or Supabase isn't configured;
+// treat those as the local user's own. Otherwise only the owning session may delete it.
+function canDeleteRecord(record) {
+  return !record.ownerId || (!!state.ownerId && record.ownerId === state.ownerId)
+}
+
+function renderList(records) {
   el.recordCount.textContent = records.length
 
   if (records.length === 0) {
@@ -221,17 +259,20 @@ function renderList() {
     )}`
 
     main.append(species, memo, meta)
+    li.append(main)
 
-    const deleteBtn = document.createElement('button')
-    deleteBtn.type = 'button'
-    deleteBtn.className = 'tree-item-delete'
-    deleteBtn.textContent = '삭제'
-    deleteBtn.addEventListener('click', (event) => {
-      event.stopPropagation()
-      handleDelete(record.id)
-    })
+    if (canDeleteRecord(record)) {
+      const deleteBtn = document.createElement('button')
+      deleteBtn.type = 'button'
+      deleteBtn.className = 'tree-item-delete'
+      deleteBtn.textContent = '삭제'
+      deleteBtn.addEventListener('click', (event) => {
+        event.stopPropagation()
+        handleDelete(record.id)
+      })
+      li.append(deleteBtn)
+    }
 
-    li.append(main, deleteBtn)
     li.addEventListener('click', () => {
       map.setView([record.lat, record.lng], DEFAULT_ZOOM)
       state.markers.get(record.id)?.openPopup()
@@ -241,35 +282,74 @@ function renderList() {
   }
 }
 
-function handleDelete(id) {
-  deleteRecord(id)
+async function handleDelete(id) {
+  const { success, error } = await deleteRecord(id)
+
+  if (!success) {
+    console.error('Failed to delete record', error)
+    setSaveStatus('삭제하지 못했습니다. 네트워크 상태를 확인하고 다시 시도해주세요.', { failed: true })
+    return
+  }
+
+  state.records = state.records.filter((record) => record.id !== id)
   removeMarker(id)
-  renderList()
+  renderList(state.records)
 }
 
-function loadExistingRecords() {
-  for (const record of getRecords()) {
+async function loadExistingRecords() {
+  const { records, source, ownerId, error } = await getRecords()
+
+  state.records = records
+  state.ownerId = ownerId
+
+  for (const record of records) {
     renderMarker(record)
   }
-  renderList()
+  renderList(state.records)
+
+  if (source === 'cache' && error) {
+    setSyncStatus('클라우드에 연결할 수 없어 마지막으로 저장된 기록을 표시 중입니다.')
+  } else {
+    setSyncStatus('')
+  }
 }
 
-el.form.addEventListener('submit', (event) => {
+el.form.addEventListener('submit', async (event) => {
   event.preventDefault()
-  if (!state.currentPosition) return
+  if (!state.currentPosition || state.saving) return
 
   const species = el.species.value.trim()
   if (!species) return
 
-  const record = addRecord({
+  state.saving = true
+  updateSaveButtonState()
+  setSaveStatus('저장 중…')
+
+  const { record, error } = await addRecord({
     species,
     memo: el.memo.value.trim(),
     lat: state.currentPosition.lat,
     lng: state.currentPosition.lng,
+    accuracy: state.currentPosition.accuracy,
   })
 
+  state.saving = false
+  updateSaveButtonState()
+
+  if (!record) {
+    console.error('Failed to save record', error)
+    setSaveStatus('저장하지 못했습니다. 네트워크 상태를 확인하고 다시 시도해주세요.', { failed: true })
+    return
+  }
+
+  if (record.ownerId && !state.ownerId) {
+    state.ownerId = record.ownerId
+  }
+
+  state.records = [record, ...state.records]
   renderMarker(record)
-  renderList()
+  renderList(state.records)
+  setSaveStatus('')
 
   el.form.reset()
 })
