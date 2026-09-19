@@ -5,7 +5,7 @@ workflows:
     name: Android Debug (smoke test)
     max_build_duration: 30
     environment:
-      node: 20
+      node: 22
     triggering:
       events:
         - push
@@ -35,7 +35,7 @@ workflows:
     environment:
       android_signing:
         - treemap_keystore
-      node: 20
+      node: 22
     triggering:
       events:
         - push
@@ -69,7 +69,7 @@ workflows:
     name: iOS Simulator (smoke test)
     max_build_duration: 60
     environment:
-      node: 20
+      node: 22
       xcode: latest
     triggering:
       events:
@@ -107,7 +107,7 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.hyosunchoi.treemap
-      node: 20
+      node: 22
       xcode: latest
     triggering:
       events:
