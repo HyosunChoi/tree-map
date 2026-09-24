@@ -248,6 +248,36 @@ textarea:focus {
   gap: 0.5rem;
 }
 
+.species-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.species-suggestions-status {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.species-chip {
+  border: 1px solid var(--color-primary);
+  background: #eef4f0;
+  color: var(--color-primary-dark);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.species-chip:active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
 .list-section {
   flex: 1;
   padding: 1rem;

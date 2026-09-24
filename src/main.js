@@ -8,6 +8,7 @@ import { Geolocation } from '@capacitor/geolocation'
 import './style.css'
 import { getRecords, addRecord, deleteRecord } from './storage.js'
 import { resizeImageFile } from './image.js'
+import { identifySpecies } from './plantnet.js'
 
 // Vite bundles Leaflet's default marker images under a hashed path;
 // without this the default markers render as broken images.
@@ -37,6 +38,8 @@ const state = {
   ownerId: null,
   saving: false,
   photoPreviewUrl: null,
+  resizedPhoto: null,
+  processingPhoto: false,
 }
 
 const el = {
@@ -49,6 +52,7 @@ const el = {
   photoPreview: document.getElementById('photo-preview'),
   photoPickBtn: document.getElementById('photo-pick-btn'),
   photoClearBtn: document.getElementById('photo-clear-btn'),
+  speciesSuggestions: document.getElementById('species-suggestions'),
   saveBtn: document.getElementById('save-btn'),
   saveStatus: document.getElementById('save-status'),
   list: document.getElementById('tree-list'),
@@ -116,7 +120,7 @@ function setSaveStatus(text, { failed = false } = {}) {
 }
 
 function updateSaveButtonState() {
-  el.saveBtn.disabled = state.saving || !state.currentPosition
+  el.saveBtn.disabled = state.saving || state.processingPhoto || !state.currentPosition
 }
 
 function setPhotoPreview(file) {
@@ -138,9 +142,85 @@ function setPhotoPreview(file) {
   el.photoClearBtn.hidden = false
 }
 
-function clearPhotoInput() {
+// `statusText` shows a transient message (e.g. "추천 중…") in place of chips.
+function renderSpeciesSuggestions(suggestions, statusText = '') {
+  el.speciesSuggestions.innerHTML = ''
+
+  if (statusText) {
+    el.speciesSuggestions.hidden = false
+    const status = document.createElement('p')
+    status.className = 'species-suggestions-status'
+    status.textContent = statusText
+    el.speciesSuggestions.append(status)
+    return
+  }
+
+  if (!suggestions || suggestions.length === 0) {
+    el.speciesSuggestions.hidden = true
+    return
+  }
+
+  el.speciesSuggestions.hidden = false
+  for (const suggestion of suggestions) {
+    const chip = document.createElement('button')
+    chip.type = 'button'
+    chip.className = 'species-chip'
+    const scorePct = Number.isFinite(suggestion.score) ? ` ${Math.round(suggestion.score * 100)}%` : ''
+    chip.textContent = `${suggestion.label}${scorePct}`
+    chip.title = suggestion.scientificName || ''
+    chip.addEventListener('click', () => {
+      el.species.value = suggestion.label
+      el.species.focus()
+    })
+    el.speciesSuggestions.append(chip)
+  }
+}
+
+// Shared by the "사진 제거" button and a successful save — both need the file input,
+// preview, resized-photo cache, and AI suggestions all back to their empty state together.
+function resetPhotoState() {
   el.photo.value = ''
   setPhotoPreview(null)
+  state.resizedPhoto = null
+  state.processingPhoto = false
+  renderSpeciesSuggestions([])
+}
+
+function clearPhotoInput() {
+  resetPhotoState()
+  updateSaveButtonState()
+}
+
+async function handlePhotoChange() {
+  const file = el.photo.files[0] || null
+  setPhotoPreview(file)
+  state.resizedPhoto = null
+  renderSpeciesSuggestions([])
+
+  if (!file) {
+    state.processingPhoto = false
+    updateSaveButtonState()
+    return
+  }
+
+  state.processingPhoto = true
+  updateSaveButtonState()
+  renderSpeciesSuggestions([], 'AI가 수종을 추천하는 중…')
+
+  try {
+    state.resizedPhoto = await resizeImageFile(file)
+  } catch (error) {
+    console.error('Failed to process photo', error)
+    renderSpeciesSuggestions([])
+    state.processingPhoto = false
+    updateSaveButtonState()
+    return
+  }
+
+  const { suggestions } = await identifySpecies(state.resizedPhoto)
+  renderSpeciesSuggestions(suggestions)
+  state.processingPhoto = false
+  updateSaveButtonState()
 }
 
 function setSyncStatus(text) {
@@ -394,8 +474,8 @@ el.form.addEventListener('submit', async (event) => {
   updateSaveButtonState()
 
   const photoFile = el.photo.files[0] || null
-  let photo = null
-  if (photoFile) {
+  let photo = state.resizedPhoto || null
+  if (photoFile && !photo) {
     setSaveStatus('사진 처리 중…')
     try {
       photo = await resizeImageFile(photoFile)
@@ -438,12 +518,12 @@ el.form.addEventListener('submit', async (event) => {
   setSaveStatus('')
 
   el.form.reset()
-  setPhotoPreview(null)
+  resetPhotoState()
 })
 
 el.retryLocationBtn.addEventListener('click', requestLocation)
 el.photoPickBtn.addEventListener('click', () => el.photo.click())
-el.photo.addEventListener('change', () => setPhotoPreview(el.photo.files[0] || null))
+el.photo.addEventListener('change', handlePhotoChange)
 el.photoClearBtn.addEventListener('click', clearPhotoInput)
 
 loadExistingRecords()
