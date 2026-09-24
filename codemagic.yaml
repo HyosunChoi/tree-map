@@ -5,6 +5,9 @@ workflows:
     name: Android Debug (smoke test)
     max_build_duration: 30
     environment:
+      vars:
+        VITE_SUPABASE_URL: https://yktytsgzqantburcctlo.supabase.co
+        VITE_SUPABASE_ANON_KEY: sb_publishable_0QxHUks33kfzcBWsKuYQzw_qHABjUvS
       java: 21
       node: 22
     triggering:
@@ -35,6 +38,9 @@ workflows:
     name: Android Release
     max_build_duration: 30
     environment:
+      vars:
+        VITE_SUPABASE_URL: https://yktytsgzqantburcctlo.supabase.co
+        VITE_SUPABASE_ANON_KEY: sb_publishable_0QxHUks33kfzcBWsKuYQzw_qHABjUvS
       android_signing:
         - treemap_keystore
       java: 21
@@ -73,6 +79,9 @@ workflows:
     name: iOS Simulator (smoke test)
     max_build_duration: 60
     environment:
+      vars:
+        VITE_SUPABASE_URL: https://yktytsgzqantburcctlo.supabase.co
+        VITE_SUPABASE_ANON_KEY: sb_publishable_0QxHUks33kfzcBWsKuYQzw_qHABjUvS
       node: 22
       xcode: latest
     triggering:
@@ -108,6 +117,9 @@ workflows:
     integrations:
       app_store_connect: codemagic_api_key
     environment:
+      vars:
+        VITE_SUPABASE_URL: https://yktytsgzqantburcctlo.supabase.co
+        VITE_SUPABASE_ANON_KEY: sb_publishable_0QxHUks33kfzcBWsKuYQzw_qHABjUvS
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.hyosunchoi.treemap
