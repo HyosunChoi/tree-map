@@ -62,6 +62,16 @@ body {
   background: #dde;
 }
 
+.popup-photo {
+  display: block;
+  width: 100%;
+  max-width: 200px;
+  max-height: 150px;
+  object-fit: cover;
+  border-radius: 6px;
+  margin-bottom: 0.4rem;
+}
+
 .current-location-icon {
   background: transparent;
   border: none;
@@ -219,6 +229,25 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.photo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.photo-preview {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.photo-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .list-section {
   flex: 1;
   padding: 1rem;
@@ -252,8 +281,17 @@ textarea:focus {
   cursor: pointer;
 }
 
+.tree-item-photo {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
 .tree-item-main {
   min-width: 0;
+  flex: 1;
 }
 
 .tree-item-species {

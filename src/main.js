@@ -7,6 +7,7 @@ import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
 import './style.css'
 import { getRecords, addRecord, deleteRecord } from './storage.js'
+import { resizeImageFile } from './image.js'
 
 // Vite bundles Leaflet's default marker images under a hashed path;
 // without this the default markers render as broken images.
@@ -35,6 +36,7 @@ const state = {
   records: [],
   ownerId: null,
   saving: false,
+  photoPreviewUrl: null,
 }
 
 const el = {
@@ -43,6 +45,10 @@ const el = {
   form: document.getElementById('tree-form'),
   species: document.getElementById('species'),
   memo: document.getElementById('memo'),
+  photo: document.getElementById('photo'),
+  photoPreview: document.getElementById('photo-preview'),
+  photoPickBtn: document.getElementById('photo-pick-btn'),
+  photoClearBtn: document.getElementById('photo-clear-btn'),
   saveBtn: document.getElementById('save-btn'),
   saveStatus: document.getElementById('save-status'),
   list: document.getElementById('tree-list'),
@@ -111,6 +117,30 @@ function setSaveStatus(text, { failed = false } = {}) {
 
 function updateSaveButtonState() {
   el.saveBtn.disabled = state.saving || !state.currentPosition
+}
+
+function setPhotoPreview(file) {
+  if (state.photoPreviewUrl) {
+    URL.revokeObjectURL(state.photoPreviewUrl)
+    state.photoPreviewUrl = null
+  }
+
+  if (!file) {
+    el.photoPreview.src = ''
+    el.photoPreview.hidden = true
+    el.photoClearBtn.hidden = true
+    return
+  }
+
+  state.photoPreviewUrl = URL.createObjectURL(file)
+  el.photoPreview.src = state.photoPreviewUrl
+  el.photoPreview.hidden = false
+  el.photoClearBtn.hidden = false
+}
+
+function clearPhotoInput() {
+  el.photo.value = ''
+  setPhotoPreview(null)
 }
 
 function setSyncStatus(text) {
@@ -227,8 +257,11 @@ async function requestLocation() {
 }
 
 function renderMarker(record) {
+  const photoHtml = record.photoUrl
+    ? `<img class="popup-photo" src="${escapeHtml(record.photoUrl)}" alt="" />`
+    : ''
   const marker = L.marker([record.lat, record.lng]).addTo(map).bindPopup(
-    `<strong>${escapeHtml(record.species)}</strong><br>${escapeHtml(record.memo || '')}<br><small>${formatTimestamp(
+    `${photoHtml}<strong>${escapeHtml(record.species)}</strong><br>${escapeHtml(record.memo || '')}<br><small>${formatTimestamp(
       record.createdAt
     )}</small>`
   )
@@ -268,6 +301,14 @@ function renderList(records) {
     const li = document.createElement('li')
     li.className = 'tree-item'
     li.dataset.id = record.id
+
+    if (record.photoUrl) {
+      const thumb = document.createElement('img')
+      thumb.className = 'tree-item-photo'
+      thumb.src = record.photoUrl
+      thumb.alt = ''
+      li.append(thumb)
+    }
 
     const main = document.createElement('div')
     main.className = 'tree-item-main'
@@ -351,6 +392,22 @@ el.form.addEventListener('submit', async (event) => {
 
   state.saving = true
   updateSaveButtonState()
+
+  const photoFile = el.photo.files[0] || null
+  let photo = null
+  if (photoFile) {
+    setSaveStatus('사진 처리 중…')
+    try {
+      photo = await resizeImageFile(photoFile)
+    } catch (error) {
+      console.error('Failed to process photo', error)
+      state.saving = false
+      updateSaveButtonState()
+      setSaveStatus('사진을 처리하지 못했습니다. 다른 사진으로 시도해주세요.', { failed: true })
+      return
+    }
+  }
+
   setSaveStatus('저장 중…')
 
   const { record, error } = await addRecord({
@@ -359,6 +416,7 @@ el.form.addEventListener('submit', async (event) => {
     lat: state.currentPosition.lat,
     lng: state.currentPosition.lng,
     accuracy: state.currentPosition.accuracy,
+    photo,
   })
 
   state.saving = false
@@ -380,9 +438,13 @@ el.form.addEventListener('submit', async (event) => {
   setSaveStatus('')
 
   el.form.reset()
+  setPhotoPreview(null)
 })
 
 el.retryLocationBtn.addEventListener('click', requestLocation)
+el.photoPickBtn.addEventListener('click', () => el.photo.click())
+el.photo.addEventListener('change', () => setPhotoPreview(el.photo.files[0] || null))
+el.photoClearBtn.addEventListener('click', clearPhotoInput)
 
 loadExistingRecords()
 requestLocation()

@@ -54,6 +54,27 @@
               placeholder="특징, 크기, 상태 등을 자유롭게 기록하세요"
             ></textarea>
 
+            <label for="photo">사진</label>
+            <div class="photo-field">
+              <img id="photo-preview" class="photo-preview" alt="선택한 사진 미리보기" hidden />
+              <div class="photo-buttons">
+                <input
+                  id="photo"
+                  name="photo"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  hidden
+                />
+                <button type="button" id="photo-pick-btn" class="btn btn-secondary">
+                  사진 선택
+                </button>
+                <button type="button" id="photo-clear-btn" class="btn btn-secondary" hidden>
+                  사진 제거
+                </button>
+              </div>
+            </div>
+
             <button type="submit" id="save-btn" class="btn btn-primary" disabled>
               이 위치에 기록 저장
             </button>

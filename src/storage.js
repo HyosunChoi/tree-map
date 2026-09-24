@@ -2,6 +2,7 @@ import { supabase, ensureSession } from './supabaseClient.js'
 
 const STORAGE_KEY = 'tree-map:records'
 const MIGRATION_FLAG_KEY = 'tree-map:migrated'
+const PHOTO_BUCKET = 'tree-photos'
 
 let lastOwnerId = null
 
@@ -41,6 +42,8 @@ function rowToRecord(row) {
     lat: row.latitude,
     lng: row.longitude,
     accuracy: row.accuracy_m ?? null,
+    photoUrl: row.photo_url ?? null,
+    photoPath: row.photo_path ?? null,
     createdAt: row.observed_at,
   }
 }
@@ -54,8 +57,23 @@ function recordToRow(record, ownerId) {
     latitude: record.lat,
     longitude: record.lng,
     accuracy_m: Number.isFinite(record.accuracy) ? record.accuracy : null,
+    photo_url: record.photoUrl || null,
+    photo_path: record.photoPath || null,
     observed_at: record.createdAt,
   }
+}
+
+// Uploads an already-resized photo blob and returns its public URL + storage path
+// (the path is kept on the record so deleteRecord can clean the file up later).
+async function uploadPhoto(blob, ownerId) {
+  const path = `${ownerId}/${crypto.randomUUID()}.jpg`
+  const { error } = await supabase.storage
+    .from(PHOTO_BUCKET)
+    .upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+  if (error) throw error
+
+  const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path)
+  return { url: data.publicUrl, path }
 }
 
 export function getCurrentOwnerId() {
@@ -108,7 +126,11 @@ export async function getRecords() {
   }
 }
 
-export async function addRecord({ species, memo, lat, lng, accuracy }) {
+// `photo` is an already-resized JPEG Blob (see src/image.js) — this function only uploads it.
+// Photos require Supabase (no local-only fallback: localStorage isn't a sane place for image
+// blobs), so a photo picked while offline/unconfigured is silently dropped rather than blocking
+// the rest of the save.
+export async function addRecord({ species, memo, lat, lng, accuracy, photo }) {
   const record = {
     id: crypto.randomUUID(),
     species,
@@ -116,6 +138,8 @@ export async function addRecord({ species, memo, lat, lng, accuracy }) {
     lat,
     lng,
     accuracy: Number.isFinite(accuracy) ? accuracy : null,
+    photoUrl: null,
+    photoPath: null,
     createdAt: new Date().toISOString(),
   }
 
@@ -130,6 +154,13 @@ export async function addRecord({ species, memo, lat, lng, accuracy }) {
     if (!ownerId) throw new Error('No Supabase session available')
 
     record.ownerId = ownerId
+
+    if (photo) {
+      const { url, path } = await uploadPhoto(photo, ownerId)
+      record.photoUrl = url
+      record.photoPath = path
+    }
+
     const { error } = await supabase.from('trees').insert(recordToRow(record, ownerId))
     if (error) throw error
 
@@ -148,10 +179,16 @@ export async function deleteRecord(id) {
 
   try {
     // .select() surfaces RLS-blocked deletes (0 rows) as a detectable no-op instead of a silent success.
-    const { data, error } = await supabase.from('trees').delete().eq('id', id).select('id')
+    const { data, error } = await supabase.from('trees').delete().eq('id', id).select('id, photo_path')
     if (error) throw error
     if (!data || data.length === 0) {
       throw new Error('Delete was blocked (not the owner, or the record no longer exists)')
+    }
+
+    const photoPath = data[0]?.photo_path
+    if (photoPath) {
+      // Best-effort: an orphaned storage object is harmless clutter, not worth failing the delete over.
+      supabase.storage.from(PHOTO_BUCKET).remove([photoPath]).catch(() => {})
     }
 
     writeCache(readCache().filter((record) => record.id !== id))
