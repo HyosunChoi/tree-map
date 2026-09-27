@@ -166,7 +166,13 @@ function renderSpeciesSuggestions(suggestions, statusText = '') {
     chip.type = 'button'
     chip.className = 'species-chip'
     const scorePct = Number.isFinite(suggestion.score) ? ` ${Math.round(suggestion.score * 100)}%` : ''
-    chip.textContent = `${suggestion.label}${scorePct}`
+    // Pl@ntNet has no Korean common names, so the label is often English — showing the
+    // scientific name alongside gives the user something recognizable/searchable either way.
+    const scientificPart =
+      suggestion.scientificName && suggestion.scientificName !== suggestion.label
+        ? ` (${suggestion.scientificName})`
+        : ''
+    chip.textContent = `${suggestion.label}${scientificPart}${scorePct}`
     chip.title = suggestion.scientificName || ''
     chip.addEventListener('click', () => {
       el.species.value = suggestion.label

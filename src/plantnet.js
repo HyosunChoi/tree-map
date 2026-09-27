@@ -12,7 +12,10 @@ export async function identifySpecies(photoBlob) {
   formData.append('organs', 'auto')
 
   try {
-    const url = `${API_BASE}?api-key=${encodeURIComponent(apiKey)}&lang=ko`
+    // No `lang=ko`: Pl@ntNet returns 404 "No localization available for ko" for common
+    // names — it doesn't have Korean localization. Common names come back in whatever
+    // language Pl@ntNet has for that species (often English); scientificName is always there.
+    const url = `${API_BASE}?api-key=${encodeURIComponent(apiKey)}`
     const response = await fetch(url, { method: 'POST', body: formData })
     if (!response.ok) throw new Error(`Pl@ntNet request failed (${response.status})`)
 
